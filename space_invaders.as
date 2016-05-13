@@ -30,7 +30,13 @@ FIM_TEXTO       EQU     '@'
 POS_STR         EQU     0614h
 POS_veiculo_ini EQU     1627h 
 
-POS_alien_ini   EQU     0101h
+POS_alien_ini   EQU     0101h   
+LIMITE_direita  EQU     0028h
+LIMITE_esquerda EQU     0001h
+ALIEN_DEAD      EQU     FFFFh
+MOVE_DOWN       EQU     0100h
+MOVE_RIGHT      EQU     0001h
+MOVE_LEFT       EQU     FFFFh
 
 ;===============================================================================
 ; ZONA II: Definicao de variaveis
@@ -48,7 +54,9 @@ veiculo         STR     'O-^-O', FIM_TEXTO
 POS_veiculo     WORD    POS_veiculo_ini
 
 alien           STR     'OVO', FIM_TEXTO
-alien_vec       TAB     28       ; vector de 28 posições
+alien_vec       TAB     28              ; vector de 28 posições
+alien_move_dir  WORD    MOVE_DOWN
+alien_position  WORD    POS_alien_ini   ; contém coordenada do 1º alien
 
 ;===============================================================================
 ; ZONA III: Codigo
@@ -137,7 +145,7 @@ RotinaIntTemp: CALL     EscAliens
                MOV      M[TEMP_CONTROL], R1
                POP      R1
                RTI
-;
+
 ;===============================================================================
 ; Delay: Rotina que permite gerar um atraso
 ;               Entradas: ---
@@ -279,14 +287,42 @@ EscAliens:    PUSH      R1
               PUSH      R4
               PUSH      R5
               PUSH      R6
+              PUSH      R7
 
               MOV       R6, ' '
+              MOV       R7, M[alien_move_dir]
+              MOV       R1, 001Ch           ; contador, 28d nº aliens
+              MOV       R2, alien_vec       ; apontador para vector aliens
 
-              MOV       R1, 001Ch       ; contador
-              MOV       R2, alien_vec
+              CMP       R7, MOVE_DOWN       ; se aliens acabaram de descer
+              BR.NZ     fronteira_dir
+              MOV       R4, M[alien_position]
+              AND       R4, 00FFh  
+              CMP       R4, LIMITE_esquerda
+              BR.NZ     moveresq
+              MOV       R7, MOVE_RIGHT      ; passam a andar para a direita
+              MOV       M[alien_move_dir], R7
+              BR        printalien
+moveresq:     MOV       R7, MOVE_LEFT       ; passam a andar para a esquerda
+              MOV       M[alien_move_dir], R7
+              BR        printalien
+
+fronteira_dir:MOV       R4, M[alien_position]  ; atingiram parede direita?
+              AND       R4, 00FFh
+              CMP       R4, LIMITE_direita
+              BR.NZ     fronteira_esq
+              MOV       R7, MOVE_DOWN          ; mover para baixo
+              MOV       M[alien_move_dir], R7  ; update direção
+              BR        printalien
+fronteira_esq:CMP       R4, LIMITE_esquerda
+              BR.NZ     printalien
+              MOV       R7, MOVE_DOWN          ; mover para baixo
+              MOV       M[alien_move_dir], R7  ; update direção
 
 printalien:   MOV       R4, 0002h       ; apagar alien anterior
               MOV       R5, M[R2]
+              CMP       R5, ALIEN_DEAD  ; ver se alien já foi atingido
+              BR.Z      next_alien
 cleanalien:   MOV       M[IO_CURSOR], R5
               MOV       M[IO_WRITE], R6
               INC       R5
@@ -294,17 +330,22 @@ cleanalien:   MOV       M[IO_CURSOR], R5
               BR.NN     cleanalien
 
               MOV       R3, M[R2] 
-              INC       R3
+              ADD       R3, R7          ; mover alien next print, dir R7
               MOV       M[R2], R3
 
               PUSH      alien
               PUSH      R3
               CALL      EscString
 
-              INC       R2
+next_alien:   INC       R2
               DEC       R1
               BR.NZ     printalien
 
+              MOV       R1, M[alien_position]  ; update posicao alien
+              ADD       R1, R7 
+              MOV       M[alien_position], R1
+
+fim_EAliens:  POP       R7
               POP       R6
               POP       R5
               POP       R4
