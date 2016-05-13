@@ -27,7 +27,8 @@ TEMP_DELAY      EQU     0001h
 LIMPAR_JANELA   EQU     FFFFh
 FIM_TEXTO       EQU     '@'
 
-POS_STR         EQU     0614h
+POS_STR         EQU     121Ch
+
 POS_veiculo_ini EQU     1627h 
 
 ALIEN_SIZE      EQU     0003h
@@ -48,6 +49,7 @@ MOVE_LEFT       EQU     FFFFh
 
                 ORIG    8000h
 str_start       STR     'Prima I0 para iniciar o jogo', FIM_TEXTO
+str_start_clean STR     '                            ', FIM_TEXTO
 INT0_global     WORD    0000h
 parede_h        STR     '|------------------------------------------------------------------------------|', FIM_TEXTO
 
@@ -130,6 +132,10 @@ EscCar:         MOV     M[IO_WRITE], R1
 RotinaInt0:    PUSH     R1
                MOV      R1, 0001h
                MOV      M[INT0_global], R1
+               MOV      M[TEMP_CONTROL], R1
+               PUSH     str_start_clean
+               PUSH     POS_STR
+               CALL     EscString
                POP      R1
                RTI
 
@@ -280,7 +286,6 @@ Disparar:      MOV      M[TEMP_CONTROL], R0   ; desactivar temporizador
 shootloop:     MOV      M[IO_CURSOR], R1
                MOV      M[IO_WRITE], R2
                SUB      R1, 0100h
-               CALL     Delay
                MOV      R3, alien_vec
                MOV      R5, 001Ch       
 checkhit:      MOV      R4, M[R3]
@@ -308,6 +313,16 @@ missedshot:    MOV      R2, ' '
                MOV      R3, M[POS_veiculo]
                SUB      R3, 0100h
                ADD      R3, 0002h
+
+               
+               ; delay de espera final do tiro
+               ;!!!!! DEVE SER IMPLEMENTADO USANDO TEMPORIZADOR 0.2s
+               MOV      R4, 000Fh
+endshotloop:   CALL     Delay
+               DEC      R4
+               BR.NZ    endshotloop
+
+               
 eraseshoot:    MOV      M[IO_CURSOR], R3
                MOV      M[IO_WRITE], R2
                SUB      R3, 0100h
@@ -374,11 +389,9 @@ printalien:   MOV       R4, 0002h       ; apagar alien anterior
               MOV       R5, M[R2]
               CMP       R5, ALIEN_DEAD  ; ver se alien já foi atingido
               BR.Z      next_alien
-cleanalien:   MOV       M[IO_CURSOR], R5
-              MOV       M[IO_WRITE], R6
-              INC       R5
-              DEC       R4
-              BR.NN     cleanalien
+              PUSH      alien_clean
+              PUSH      R5
+              CALL      EscString
 
               MOV       R3, M[R2] 
               ADD       R3, R7          ; mover alien next print, dir R7
@@ -420,8 +433,7 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                ;temporizador
                MOV      R1, TEMP_DELAY
                MOV      M[TEMP_UNIT], R1
-               MOV      R1, 0001h
-               MOV      M[TEMP_CONTROL], R1
+               MOV      M[TEMP_CONTROL], R0   ; esperar por start
                MOV      R1, RotinaIntTemp
                MOV      M[TAB_TEMP], R1
 
@@ -434,13 +446,12 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                PUSH     POS_veiculo_ini
                CALL     EscString
 
-; comentado por agora para debug mais rapido
-;               MOV      R1, 0000h
-;waitstart:     MOV      R1, M[INT0_global] 
-;               CMP      R1, 0000h       ; espera por INT0 para activar R1
-;               BR.Z     waitstart
-;               MOV      R1, 0000h
-;               MOV      M[INT0_global], R1
+               MOV      R1, 0000h
+waitstart:     MOV      R1, M[INT0_global] 
+               CMP      R1, 0000h       ; espera por INT0 para activar R1
+               BR.Z     waitstart
+               MOV      R1, 0000h
+               MOV      M[INT0_global], R1
 
                ; setup aliens, posicionar aliens no vector alien_vec
                MOV      R2, 0004h
