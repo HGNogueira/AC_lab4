@@ -30,10 +30,11 @@ FIM_TEXTO       EQU     '@'
 POS_STR         EQU     0614h
 POS_veiculo_ini EQU     1627h 
 
+ALIEN_SIZE      EQU     0003h
 POS_alien_ini   EQU     0101h   
 LIMITE_direita  EQU     0028h
 LIMITE_esquerda EQU     0001h
-ALIEN_DEAD      EQU     FFFFh
+ALIEN_DEAD      EQU     DEADh
 MOVE_DOWN       EQU     0100h
 MOVE_RIGHT      EQU     0001h
 MOVE_LEFT       EQU     FFFFh
@@ -54,6 +55,7 @@ veiculo         STR     'O-^-O', FIM_TEXTO
 POS_veiculo     WORD    POS_veiculo_ini
 
 alien           STR     'OVO', FIM_TEXTO
+alien_clean     STR     '   ', FIM_TEXTO
 alien_vec       TAB     28              ; vector de 28 posições
 alien_move_dir  WORD    MOVE_DOWN
 alien_position  WORD    POS_alien_ini   ; contém coordenada do 1º alien
@@ -158,6 +160,25 @@ DelayLoop:      DEC     R1
                 BR.NZ   DelayLoop
                 POP     R1
                 RET
+;===============================================================================
+; ABSDIF: Calcula valor absoluto da diferença de 2 números R = |A-B|
+;               Entradas:  pilha - operando A
+;                          pilha - operando B
+;               Saidas:    pilha - resultado R
+;               Efeitos: ---
+;===============================================================================
+ABSDIF:         PUSH    R1
+                PUSH    R2
+
+                MOV     R1, M[SP + 4]
+                MOV     R2, M[SP + 5]
+                SUB     R1, R2
+                BR.P    num_positivo
+                NEG     R1
+num_positivo:   MOV     M[SP + 5], R1
+                POP     R2
+                POP     R1
+                RETN    1
                
 ;===============================================================================
 ; EspacoFill: Preenche setup do espaco de jogo com parede vertical e horizontal
@@ -244,9 +265,13 @@ endMove:       POP      R3
 ;               Saidas: ---
 ;               Efeitos: ---
 ;===============================================================================
-Disparar:      PUSH     R1  
+Disparar:      MOV      M[TEMP_CONTROL], R0   ; desactivar temporizador
+               PUSH     R1
                PUSH     R2
                PUSH     R3
+               PUSH     R4
+               PUSH     R5
+               PUSH     R6
                
                MOV      R1, M[POS_veiculo]
                MOV      R2, '*'
@@ -256,10 +281,30 @@ shootloop:     MOV      M[IO_CURSOR], R1
                MOV      M[IO_WRITE], R2
                SUB      R1, 0100h
                CALL     Delay
+               MOV      R3, alien_vec
+               MOV      R5, 001Ch       
+checkhit:      MOV      R4, M[R3]
+               PUSH     R4
+               PUSH     R1
+               CALL     ABSDIF
+               POP      R6
+               CMP      R6, ALIEN_SIZE   ; se tiro acertou no alien 
+               BR.N     alienshot
+               INC      R3
+               DEC      R5
+               BR.NZ    checkhit
+               
                CMP      R1, 00FFh
                BR.NN    shootloop
+               BR       missedshot
 
-               MOV      R2, ' '
+alienshot:     PUSH     alien_clean 
+               PUSH     R4
+               CALL     EscString
+               MOV      R4, ALIEN_DEAD
+               MOV      M[R3], R4
+
+missedshot:    MOV      R2, ' '
                MOV      R3, M[POS_veiculo]
                SUB      R3, 0100h
                ADD      R3, 0002h
@@ -269,6 +314,12 @@ eraseshoot:    MOV      M[IO_CURSOR], R3
                CMP      R3, R1
                BR.NZ    eraseshoot
 
+               MOV      R1, 0001h       ; activar temporizador
+               MOV      M[TEMP_CONTROL], R1
+
+               POP      R6
+               POP      R5
+               POP      R4
                POP      R3
                POP      R2
                POP      R1
