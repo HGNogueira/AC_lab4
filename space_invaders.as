@@ -31,10 +31,11 @@ POS_STR         EQU     121Ch
 
 POS_veiculo_ini EQU     1627h 
 
-ALIEN_SIZE      EQU     0003h
 POS_alien_ini   EQU     0101h   
+POS_ld_alien    EQU     0A01h
 LIMITE_direita  EQU     0028h
 LIMITE_esquerda EQU     0001h
+GROUND_LIMIT    EQU     1600h
 ALIEN_DEAD      EQU     DEADh
 MOVE_DOWN       EQU     0100h
 MOVE_RIGHT      EQU     0001h
@@ -59,8 +60,10 @@ POS_veiculo     WORD    POS_veiculo_ini
 alien           STR     'OVO', FIM_TEXTO
 alien_clean     STR     '   ', FIM_TEXTO
 alien_vec       TAB     28              ; vector de 28 posições
-alien_move_dir  WORD    MOVE_DOWN
-alien_position  WORD    POS_alien_ini   ; contém coordenada do 1º alien
+alien_move_dir  WORD    MOVE_DOWN       ; direção default, automáticamente muda MOVE_RIGHT ao inicio
+alien_position  WORD    POS_ld_alien    ; contém coordenada do 1º alien
+
+game_over       WORD    0000h
 
 ;===============================================================================
 ; ZONA III: Codigo
@@ -287,15 +290,18 @@ shootloop:     MOV      M[IO_CURSOR], R1
                MOV      M[IO_WRITE], R2
                SUB      R1, 0100h
                MOV      R3, alien_vec
+               ADD      R3, 001Bh        ; começar check hit de aliens em baixo
                MOV      R5, 001Ch       
 checkhit:      MOV      R4, M[R3]
-               PUSH     R4
+               INC      R4               ; coordenada centro do alien
+               PUSH     R4               ; para efeito de cálculo
                PUSH     R1
                CALL     ABSDIF
+               DEC      R4               ; voltar a coordenada original
                POP      R6
-               CMP      R6, ALIEN_SIZE   ; se tiro acertou no alien 
+               CMP      R6, 0002h   ; se tiro acertou no alien 
                BR.N     alienshot
-               INC      R3
+               DEC      R3
                DEC      R5
                BR.NZ    checkhit
                
@@ -314,15 +320,23 @@ missedshot:    MOV      R2, ' '
                SUB      R3, 0100h
                ADD      R3, 0002h
 
-               
-               ; delay de espera final do tiro
-               ;!!!!! DEVE SER IMPLEMENTADO USANDO TEMPORIZADOR 0.2s
-               MOV      R4, 000Fh
-endshotloop:   CALL     Delay
-               DEC      R4
-               BR.NZ    endshotloop
+               ; delay 0.2s usando temporizador
+               MOV      R4, M[INT_MASK]     ; desactivar interrupt temp
+               ADD      R4, 7FFFh         
+               AND      M[INT_MASK], R4
+               MOV      R5, 0002h
+               MOV      M[TEMP_UNIT], R5
+               MOV      R5, 0001h 
+               MOV      M[TEMP_CONTROL], R5
+tempdelay:     MOV      R6, M[TEMP_UNIT]    ; esperar que TEMP_UNIT chegue a 0
+               CMP      R6, 0000h
+               BR.NZ    tempdelay
+               MOV      M[TEMP_CONTROL], R0
+               MOV      R5, TEMP_DELAY
+               MOV      M[TEMP_UNIT], R5
+               OR       R4, 8000h
+               MOV      M[INT_MASK], R4
 
-               
 eraseshoot:    MOV      M[IO_CURSOR], R3
                MOV      M[IO_WRITE], R2
                SUB      R3, 0100h
@@ -338,8 +352,59 @@ eraseshoot:    MOV      M[IO_CURSOR], R3
                POP      R3
                POP      R2
                POP      R1
-               
                RET
+
+;===============================================================================
+; EscUmAlien: 
+;               Entradas: R7 e R2
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+EscUmAlien:   PUSH      R3
+              PUSH      R4
+              PUSH      R5
+
+              MOV       R5, M[R2]
+
+              CMP       R5, ALIEN_DEAD  ; ver se alien já foi atingido
+              BR.NZ     cont_print
+              POP       R5
+              POP       R4 
+              POP       R3
+              RET
+
+cont_print:   PUSH      alien_clean
+              PUSH      R5
+              CALL      EscString
+
+              MOV       R3, M[R2] 
+              ADD       R3, R7          ; mover alien next print, dir R7
+              MOV       M[R2], R3
+
+              PUSH      alien
+              PUSH      R3
+              CALL      EscString
+        
+              INC       R3              ; centrar alien
+              PUSH      R3
+              MOV       R5, M[POS_veiculo]
+              INC       R5              ; centrar veiculo
+              PUSH      R5
+              CALL      ABSDIF
+              POP       R5
+              CMP       R5, 0004h       ; verificar embate com nave
+              BR.NN     testground
+              MOV       R4, 0001h  
+              MOV       M[game_over], R4
+testground:   CMP       R3, GROUND_LIMIT
+              BR.N      fimUmAlien
+              MOV       M[game_over], R4
+
+fimUmAlien:   POP       R5 
+              POP       R4
+              POP       R3
+              RET
+
 ;===============================================================================
 ; EscAliens: representa os aliens na placa de texto com base no aliens_vec e 
 ;movimenta-os 1 posição
@@ -385,31 +450,16 @@ fronteira_esq:CMP       R4, LIMITE_esquerda
               MOV       R7, MOVE_DOWN          ; mover para baixo
               MOV       M[alien_move_dir], R7  ; update direção
 
-printalien:   MOV       R4, 0002h       ; apagar alien anterior
-              MOV       R5, M[R2]
-              CMP       R5, ALIEN_DEAD  ; ver se alien já foi atingido
-              BR.Z      next_alien
-              PUSH      alien_clean
-              PUSH      R5
-              CALL      EscString
-
-              MOV       R3, M[R2] 
-              ADD       R3, R7          ; mover alien next print, dir R7
-              MOV       M[R2], R3
-
-              PUSH      alien
-              PUSH      R3
-              CALL      EscString
-
-next_alien:   INC       R2
+printalien:   CALL      EscUmAlien
+              INC       R2
               DEC       R1
               BR.NZ     printalien
 
-              MOV       R1, M[alien_position]  ; update posicao alien
+              MOV       R1, M[alien_position]  ; update posicao aliens
               ADD       R1, R7 
               MOV       M[alien_position], R1
 
-fim_EAliens:  POP       R7
+              POP       R7
               POP       R6
               POP       R5
               POP       R4
@@ -467,16 +517,26 @@ colalien:      MOV      M[R5], R3
                AND      R4, 00FFh
                AND      R3, FF00h        ; passar para alien mais á esquerda prox linha
                OR       R3, R4
-               ADD      R3, 0400h
+               ADD      R3, 0300h
                DEC      R2
                BR.NZ    linealien
 
-mainloop:      MOV      R1, M[IO_PRESSED]
+mainloop:      MOV      R1, M[game_over]
+               CMP      R1, 0001h
+               BR.Z     gamelost
+               MOV      R1, M[IO_PRESSED]
                CMP      R1, 0000h
                BR.Z     mainloop
                
                CALL     MoveVeiculo
                BR       mainloop
+
+
+
+
+
+gamelost:      MOV      M[TEMP_CONTROL], R0
+               BR       gamelost
 
 Fim:           BR       Fim
 ;===============================================================================
