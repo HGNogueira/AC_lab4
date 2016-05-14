@@ -19,7 +19,9 @@ IO_READ         EQU     FFFFh
 INT_MASK        EQU     FFFAh
 TAB_INT0        EQU     FE00h
 TAB_INT7        EQU     FE07h
+TAB_INTA        EQU     FE0Ah
 TAB_TEMP        EQU     FE0Fh
+DEFAULTINTMASK  EQU     8481h
 
 TEMP_UNIT       EQU     FFF6h
 TEMP_CONTROL    EQU     FFF7h
@@ -30,6 +32,11 @@ FIM_TEXTO       EQU     '@'
 
 POS_STR         EQU     121Ch
 POS_MESSAGE     EQU     061Ch
+
+PONTO           EQU     0005h
+
+CONTINUAR       EQU     0001h
+PARAR           EQU     0000h
 
 POS_veiculo_ini EQU     1627h 
 
@@ -71,6 +78,10 @@ alien_position  WORD    POS_ld_alien    ; contém coordenada do 1º alien
 str_win         STR     'Ganhou!', FIM_TEXTO
 game_over       WORD    0000h
 str_game_over   STR     'GAME OVER', FIM_TEXTO
+
+pontuacao       WORD    0000h
+
+pausa           WORD    CONTINUAR
 
 ;===============================================================================
 ; ZONA III: Codigo
@@ -190,17 +201,69 @@ EscCar:         MOV     M[IO_WRITE], R1
 
 ;===============================================================================
 ; RotinaInt0: Rotina de interrupção 0
+;             Setup dos aliens e escrita inicial para o ecrã
 ;               Entradas: ---
 ;               Saidas: ---
 ;               Efeitos: ---
 ;===============================================================================
 RotinaInt0:    PUSH     R1
+               PUSH     R2
+               PUSH     R3 
+               PUSH     R4 
+               PUSH     R5
+
+               CALL     LimpaJanela  
+               CALL     EspacoFill
+
+               PUSH     veiculo
+               MOV      R1, M[POS_veiculo]
+               PUSH     R1
+               CALL     EscString
+
+               ; setup aliens, posicionar aliens no vector alien_vec
+               MOV      R1, MOVE_DOWN
+               MOV      M[alien_move_dir], R1
+
+               MOV      R1, POS_ld_alien
+               MOV      M[alien_position], R1
+
+               MOV      R2, 0004h
+               MOV      R3, POS_alien_ini
+               MOV      R5, alien_vec
+linealien:     MOV      R1, 0007h
+colalien:      MOV      M[R5], R3
+               INC      R5
+               ADD      R3, 0006h        ; passar para o alien á direita
+               DEC      R1
+               BR.NZ    colalien
+               MOV      R4, POS_alien_ini
+               AND      R4, 00FFh
+               AND      R3, FF00h        ; passar para alien mais á esquerda prox linha
+               OR       R3, R4
+               ADD      R3, 0300h
+               DEC      R2
+               BR.NZ    linealien
+
+               ; activar INT7
+               MOV      R1, DEFAULTINTMASK
+               MOV      M[INT_MASK], R1  ; Activar INT7
+
+               ; permitir avançar o jogo
                MOV      R1, 0001h
                MOV      M[INT0_global], R1
+               ; começar a contar o temporizador
                MOV      M[TEMP_CONTROL], R1
-               PUSH     str_clean
-               PUSH     POS_STR
-               CALL     EscString
+               ; retirar condição de pausa
+               MOV      M[pausa], R1
+
+               ; retirar condição game over
+               MOV      M[game_over], R0
+
+
+               POP      R5
+               POP      R4
+               POP      R3
+               POP      R2
                POP      R1
                RTI
 
@@ -214,12 +277,25 @@ RotinaInt7:    PUSH     R1
 ultrafastloop: CALL     EscAliens
                MOV      R1, M[game_over]
                CMP      R1, 0001h
-               CALL.Z   GameLost
+               BR.Z     quitrotina7
                BR       ultrafastloop
             
-               POP      R1
+quitrotina7:   POP      R1
                RTI
 
+
+;===============================================================================
+; RotinaIntA: Rotina de interrupção A - Pausa
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+RotinaIntA:    PUSH     R1
+               MOV      R1, M[pausa]
+               XOR      R1, 0001h          ; toggle ao bit de pausa
+               MOV      M[pausa], R1
+               POP      R1
+               RTI
 
 ;===============================================================================
 ; RotinaIntTemp: Rotina de interrupção 0
@@ -393,6 +469,7 @@ alienshot:     PUSH     alien_clean
                CALL     EscString
                MOV      R4, ALIEN_DEAD
                MOV      M[R3], R4
+               CALL     UpdatePontos
 
 missedshot:    MOV      R2, ' '
                MOV      R3, M[POS_veiculo]
@@ -432,6 +509,19 @@ eraseshoot:    MOV      M[IO_CURSOR], R3
                POP      R2
                POP      R1
                RET
+
+;===============================================================================
+; UpdatePontos
+;               Entradas: 
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+UpdatePontos: PUSH     R1
+              MOV      R1, M[pontuacao]
+              ADD      R1, PONTO
+              MOV      R1, M[pontuacao]
+              POP      R1
+              RET
 
 ;===============================================================================
 ; EscUmAlien: 
@@ -553,14 +643,19 @@ printalien:   CALL      EscUmAlien
 ;               Saidas: ---
 ;               Efeitos: ---
 ;===============================================================================
-GameLost:    MOV      M[TEMP_CONTROL], R0
+GameLost:    PUSH     R1
+             MOV      M[TEMP_CONTROL], R0
              PUSH     str_game_over
              PUSH     POS_MESSAGE
              CALL     EscString
              PUSH     str_restart
              PUSH     POS_STR
              CALL     EscString
-             BR       GameLost
+
+             MOV      R1, 0001h
+             MOV      M[INT_MASK], R1
+
+             POP      R1
              RET
  
 ;===============================================================================
@@ -573,10 +668,16 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                CALL     EspacoFill
 
                ENI
-               MOV      R1, 8001h
+               MOV      R1, DEFAULTINTMASK
                MOV      M[INT_MASK], R1 ; Activar INT0
                MOV      R1, RotinaInt0
                MOV      M[TAB_INT0], R1 ; preencher int vector pos I0
+
+               MOV      R1, RotinaInt7
+               MOV      M[TAB_INT7], R1  ; preencher int vetor pos I7
+
+               MOV      R1, RotinaIntA
+               MOV      M[TAB_INTA], R1
 
                ;temporizador
                MOV      R1, TEMP_DELAY
@@ -592,43 +693,34 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                PUSH     POS_veiculo_ini
                CALL     EscString
 
-               MOV      R1, 0000h
 waitstart:     MOV      R1, M[INT0_global] 
                CMP      R1, 0000h       ; espera por INT0 para activar R1
                BR.Z     waitstart
+
                MOV      R1, 0000h
                MOV      M[INT0_global], R1
-               MOV      R1, 8081h
-               MOV      M[INT_MASK], R1  ; Activar INT7
-               MOV      R1, RotinaInt7
-               MOV      M[TAB_INT7], R1  ; preencher int vetor pos I7
-
-               ; setup aliens, posicionar aliens no vector alien_vec
-               MOV      R2, 0004h
-               MOV      R3, POS_alien_ini
-               MOV      R5, alien_vec
-linealien:     MOV      R1, 0007h
-colalien:      MOV      M[R5], R3
-               INC      R5
-               ADD      R3, 0006h        ; passar para o alien á direita
-               DEC      R1
-               BR.NZ    colalien
-               MOV      R4, POS_alien_ini
-               AND      R4, 00FFh
-               AND      R3, FF00h        ; passar para alien mais á esquerda prox linha
-               OR       R3, R4
-               ADD      R3, 0300h
-               DEC      R2
-               BR.NZ    linealien
 
 mainloop:      MOV      R1, M[game_over]
                CMP      R1, 0001h
-               CALL.Z   GameLost
+               BR.Z     perdeu
+               MOV      R1, M[pausa]
+               CMP      R1, 0000h
+               BR.Z     pausaloop
                MOV      R1, M[IO_PRESSED]
                CMP      R1, 0000h
                BR.Z     mainloop
                
                CALL     MoveVeiculo
+               BR       mainloop
+
+perdeu:        CALL     GameLost
+               BR       waitstart
+
+pausaloop:     MOV      M[TEMP_CONTROL], R0 
+               MOV      R1, M[pausa]
+               CMP      R1, 0000h
+               BR.Z     pausaloop
+               MOV      M[TEMP_CONTROL], R1   ; activar TEMP_CONTROL
                BR       mainloop
 
 Fim:           BR       Fim
