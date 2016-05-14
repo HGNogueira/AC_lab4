@@ -18,6 +18,7 @@ IO_READ         EQU     FFFFh
 ; INTERRUPCOES
 INT_MASK        EQU     FFFAh
 TAB_INT0        EQU     FE00h
+TAB_INT7        EQU     FE07h
 TAB_TEMP        EQU     FE0Fh
 
 TEMP_UNIT       EQU     FFF6h
@@ -28,6 +29,7 @@ LIMPAR_JANELA   EQU     FFFFh
 FIM_TEXTO       EQU     '@'
 
 POS_STR         EQU     121Ch
+POS_MESSAGE     EQU     061Ch
 
 POS_veiculo_ini EQU     1627h 
 
@@ -35,7 +37,7 @@ POS_alien_ini   EQU     0101h
 POS_ld_alien    EQU     0A01h
 LIMITE_direita  EQU     0028h
 LIMITE_esquerda EQU     0001h
-GROUND_LIMIT    EQU     1600h
+GROUND_LIMIT    EQU     1700h
 ALIEN_DEAD      EQU     DEADh
 MOVE_DOWN       EQU     0100h
 MOVE_RIGHT      EQU     0001h
@@ -50,9 +52,12 @@ MOVE_LEFT       EQU     FFFFh
 
                 ORIG    8000h
 str_start       STR     'Prima I0 para iniciar o jogo', FIM_TEXTO
-str_start_clean STR     '                            ', FIM_TEXTO
+str_restart     STR     'Prima I0 para reiniciar o jogo', FIM_TEXTO
+str_clean       STR     '                              ', FIM_TEXTO
 INT0_global     WORD    0000h
 parede_h        STR     '|------------------------------------------------------------------------------|', FIM_TEXTO
+
+NW_POSITION     WORD    004Fh             ; posição actual do cursor NumberWrite
 
 veiculo         STR     'O-^-O', FIM_TEXTO
 POS_veiculo     WORD    POS_veiculo_ini
@@ -63,7 +68,9 @@ alien_vec       TAB     28              ; vector de 28 posições
 alien_move_dir  WORD    MOVE_DOWN       ; direção default, automáticamente muda MOVE_RIGHT ao inicio
 alien_position  WORD    POS_ld_alien    ; contém coordenada do 1º alien
 
+str_win         STR     'Ganhou!', FIM_TEXTO
 game_over       WORD    0000h
+str_game_over   STR     'GAME OVER', FIM_TEXTO
 
 ;===============================================================================
 ; ZONA III: Codigo
@@ -84,6 +91,61 @@ game_over       WORD    0000h
 LimpaJanela:    PUSH    R2
                 MOV     R2, LIMPAR_JANELA
                 MOV     M[IO_CURSOR], R2
+                POP     R2
+                RET
+
+;===============================================================================
+; NumberWrite: Escrever um número dado em R1 na posição CURSOR_POSITION
+;               Entradas: R1 - número a escrever
+;               Saidas: ---
+;               Efeitos: Alteracao da posicao de memoria M[IO_CURSOR], escrita de
+;número na posição dada por M[CURSOR_POSITION]
+;===============================================================================
+NumberWrite:    PUSH    R2
+                PUSH    R3
+                PUSH    R5
+                PUSH    R4
+                PUSH    R1
+
+                MOV     R3, R1
+                MOV     R5, M[NW_POSITION]
+
+                MOV     R4, 0006h        ; subrotina para limpar espaço a escrever
+					 ; limpa 6 caracteres (-65537)
+numberclean:   	MOV     M[IO_CURSOR], R5
+                MOV     R1, ' '
+                CALL    EscCar
+                DEC     R5
+                DEC     R4
+                BR.NZ   numberclean
+		
+                MOV     R5, M[NW_POSITION]
+                CMP     R3, 0000h        ; caso o número seja negativo, usar módulo
+                BR.NN   divloop
+                NEG     R3
+
+divloop:        MOV     R2, 000Ah	
+                DIV     R3, R2        ; resto da divisão em R2, divisao inteira em R3
+                MOV     R1, R2
+                ADD     R1, '0'
+                MOV     M[IO_CURSOR], R5
+                DEC     R5
+                CALL    EscCar
+                CMP     R3, 0000h
+                BR.NZ   divloop
+
+                POP     R1
+                PUSH    R1
+
+                CMP     R1, 0000h     ; caso número negativo, escrever sinal -
+                BR.NN   endNumwrite
+                MOV     M[IO_CURSOR], R5
+                MOV     R1, '-'
+                CALL    EscCar
+endNumwrite:	POP     R1
+                POP     R4
+                POP     R5
+                POP     R3
                 POP     R2
                 RET
 
@@ -136,11 +198,28 @@ RotinaInt0:    PUSH     R1
                MOV      R1, 0001h
                MOV      M[INT0_global], R1
                MOV      M[TEMP_CONTROL], R1
-               PUSH     str_start_clean
+               PUSH     str_clean
                PUSH     POS_STR
                CALL     EscString
                POP      R1
                RTI
+
+;===============================================================================
+; RotinaInt7: Rotina de interrupção 7 - modo ultra rápido
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+RotinaInt7:    PUSH     R1
+ultrafastloop: CALL     EscAliens
+               MOV      R1, M[game_over]
+               CMP      R1, 0001h
+               CALL.Z   GameLost
+               BR       ultrafastloop
+            
+               POP      R1
+               RTI
+
 
 ;===============================================================================
 ; RotinaIntTemp: Rotina de interrupção 0
@@ -148,12 +227,12 @@ RotinaInt0:    PUSH     R1
 ;               Saidas: ---
 ;               Efeitos: ---
 ;===============================================================================
-RotinaIntTemp: CALL     EscAliens
-               PUSH     R1
+RotinaIntTemp: PUSH     R1
                MOV      R1, TEMP_DELAY  
                MOV      M[TEMP_UNIT], R1
                MOV      R1, 0001h   ; activar temporizador
                MOV      M[TEMP_CONTROL], R1
+               CALL     EscAliens
                POP      R1
                RTI
 
@@ -469,10 +548,29 @@ printalien:   CALL      EscUmAlien
               RET
 
 ;===============================================================================
+; GameLost: 
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+GameLost:    MOV      M[TEMP_CONTROL], R0
+             PUSH     str_game_over
+             PUSH     POS_MESSAGE
+             CALL     EscString
+             PUSH     str_restart
+             PUSH     POS_STR
+             CALL     EscString
+             BR       GameLost
+             RET
+ 
+;===============================================================================
 ;                                Programa prinicipal
 ;===============================================================================
 inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções) 
                MOV      SP, R1
+
+               CALL     LimpaJanela  
+               CALL     EspacoFill
 
                ENI
                MOV      R1, 8001h
@@ -487,8 +585,6 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                MOV      R1, RotinaIntTemp
                MOV      M[TAB_TEMP], R1
 
-               CALL     LimpaJanela  
-               CALL     EspacoFill
                PUSH     str_start
                PUSH     POS_STR  
                CALL     EscString
@@ -502,6 +598,10 @@ waitstart:     MOV      R1, M[INT0_global]
                BR.Z     waitstart
                MOV      R1, 0000h
                MOV      M[INT0_global], R1
+               MOV      R1, 8081h
+               MOV      M[INT_MASK], R1  ; Activar INT7
+               MOV      R1, RotinaInt7
+               MOV      M[TAB_INT7], R1  ; preencher int vetor pos I7
 
                ; setup aliens, posicionar aliens no vector alien_vec
                MOV      R2, 0004h
@@ -523,20 +623,13 @@ colalien:      MOV      M[R5], R3
 
 mainloop:      MOV      R1, M[game_over]
                CMP      R1, 0001h
-               BR.Z     gamelost
+               CALL.Z   GameLost
                MOV      R1, M[IO_PRESSED]
                CMP      R1, 0000h
                BR.Z     mainloop
                
                CALL     MoveVeiculo
                BR       mainloop
-
-
-
-
-
-gamelost:      MOV      M[TEMP_CONTROL], R0
-               BR       gamelost
 
 Fim:           BR       Fim
 ;===============================================================================
