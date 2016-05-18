@@ -27,6 +27,8 @@ TEMP_UNIT       EQU     FFF6h
 TEMP_CONTROL    EQU     FFF7h
 TEMP_DELAY      EQU     0001h
 
+LEDS            EQU     FFF8h
+
 LIMPAR_JANELA   EQU     FFFFh
 FIM_TEXTO       EQU     '@'
 
@@ -44,7 +46,7 @@ POS_alien_ini   EQU     0101h
 POS_ld_alien    EQU     0A01h
 LIMITE_direita  EQU     0028h
 LIMITE_esquerda EQU     0001h
-GROUND_LIMIT    EQU     1700h
+GROUND_LIMIT    EQU     1600h
 ALIEN_DEAD      EQU     DEADh
 MOVE_DOWN       EQU     0100h
 MOVE_RIGHT      EQU     0001h
@@ -466,14 +468,16 @@ Disparar:      PUSH     R1
                PUSH     R4
                PUSH     R5
                PUSH     R6
+
+               MOV      R1, FFFFh
+               MOV      M[LEDS], R1      ; acender LEDS momentaneamente
                
                MOV      R1, M[POS_veiculo]
                MOV      R2, '*'
-               SUB      R1, 0100h        ; R1 = primeira posicao do tiro
                ADD      R1, 0002h        ; centrar tiro
-shootloop:     MOV      M[IO_CURSOR], R1
+shootloop:     SUB      R1, 0100h
+               MOV      M[IO_CURSOR], R1
                MOV      M[IO_WRITE], R2
-               SUB      R1, 0100h
                MOV      R3, alien_vec
                ADD      R3, 001Bh        ; começar check hit de aliens em baixo
                MOV      R5, 001Ch       
@@ -484,14 +488,16 @@ checkhit:      MOV      R4, M[R3]
                CALL     ABSDIF
                DEC      R4               ; voltar a coordenada original
                POP      R6
-               CMP      R6, 0002h   ; se tiro acertou no alien 
+               CMP      R6, 0002h        ; se tiro acertou no alien 
                BR.N     alienshot
                DEC      R3
                DEC      R5
                BR.NZ    checkhit
                
-               CMP      R1, 00FFh
-               BR.NN    shootloop
+               MOV      R6, R1
+               AND      R6, FF00h
+               CMP      R6, 0100h
+               BR.NZ    shootloop        ; verificar que ainda nao atingiu teto
                BR       missedshot
 
 alienshot:     PUSH     alien_clean 
@@ -532,9 +538,11 @@ eraseshoot:    MOV      M[IO_CURSOR], R3
                MOV      M[IO_WRITE], R2
                SUB      R3, 0100h
                CMP      R3, R1
-               BR.NZ    eraseshoot
+               BR.NN    eraseshoot
 
                MOV      R1, 1
+
+               MOV      M[LEDS], R0      ; apagar LEDS
 
                POP      R6
                POP      R5
@@ -589,14 +597,15 @@ cont_print:   PUSH      alien_clean
               MOV       R5, M[POS_veiculo]
               INC       R5              ; centrar veiculo
               PUSH      R5
-              CALL      ABSDIF
-              POP       R5
+              CALL      ABSDIF          
+              POP       R5              ; distancia horiz alien-veiculo
               CMP       R5, 0003h       ; verificar embate com nave
-              BR.NN     testground
               MOV       R4, 0001h  
+              BR.NN     testground
               MOV       M[game_over], R4
-testground:   CMP       R3, GROUND_LIMIT
-              BR.N      fimUmAlien
+testground:   AND       R3, FF00h
+              CMP       R3, GROUND_LIMIT
+              BR.NZ     fimUmAlien
               MOV       M[game_over], R4
 
 fimUmAlien:   POP       R5 
@@ -738,19 +747,17 @@ mainloop:      MOV		R1, M[temp_flag]
 			   CMP		R1, 1
 			   CALL.Z   MovAliens
 			   MOV      R1, M[game_over]
-               CMP      R1, 0001h
+               CMP      R1, 1
                BR.Z     perdeu
                MOV      R1, M[victory]
                CMP      R1, 1
                BR.Z     ganhou
                MOV      R1, M[running]
-               CMP      R1, 0000h
+               CMP      R1, 0
                BR.Z     pausaloop
                MOV      R1, M[IO_PRESSED]
-               CMP      R1, 0000h
-               BR.Z     mainloop
-               
-               CALL     MoveVeiculo
+               CMP      R1, 1
+               CALL.Z   MoveVeiculo
                BR       mainloop
 
 ganhou:        CALL     GameWon
