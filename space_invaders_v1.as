@@ -27,6 +27,9 @@ TEMP_UNIT       EQU     FFF6h
 TEMP_CONTROL    EQU     FFF7h
 TEMP_DELAY      EQU     0001h
 
+LCD_WRITE       EQU     FFF4h
+LCD_CONTROL     EQU     FFF5h
+
 LEDS            EQU     FFF8h
 
 LIMPAR_JANELA   EQU     FFFFh
@@ -290,7 +293,7 @@ RotinaIntTemp: PUSH     R1
                MOV      R1, 0001h   ; activar temporizador
                MOV      M[TEMP_CONTROL], R1
                MOV      R1, M[running]
-			   MOV		M[temp_flag], R1      ; só activa se jogo estiver a decorrer
+			   MOV		M[temp_flag], R1      ; só é activada enquanto modo running
                POP      R1
                RTI
 
@@ -566,6 +569,18 @@ UpdatePontos: PUSH     R1
               RET
 
 ;===============================================================================
+; WritePontos:
+;               Entradas: 
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+WritePontos:  PUSH     R1
+              POP      R1
+    
+
+              RET
+
+;===============================================================================
 ; EscUmAlien: 
 ;               Entradas: R7 e R2
 ;               Saidas: ---
@@ -734,6 +749,9 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                PUSH     POS_veiculo_ini
                CALL     EscString
 
+               MOV      R1, 8010h       ; activar LCD, limpar ecran, linha 0
+               MOV      M[LCD_CONTROL], R1
+
 waitstart:     MOV      R1, M[restart] 
                CMP      R1, 0001h       ; esperar pelo sinal restart para prosseguir
                BR.NZ    waitstart
@@ -761,9 +779,11 @@ mainloop:      MOV		R1, M[temp_flag]
                BR       mainloop
 
 ganhou:        CALL     GameWon
+               MOV      M[restart], R0    ; evitar restart automático
                JMP      waitstart
 
 perdeu:        CALL     GameLost
+               MOV      M[restart], R0    ; evitar restart automático
                JMP      waitstart
 
 pausaloop:     MOV      R1, M[running]
