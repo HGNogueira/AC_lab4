@@ -96,6 +96,9 @@ restart         WORD    0
 mode            WORD    0               ; modo de jogo; 0: normal | 1: superspeed
 
 temp_flag		WORD	0000h
+relogio_flag    WORD    0000h
+
+tempo           WORD    0000h           ; contabiliza n interrupções de timer
 
 ;===============================================================================
 ; ZONA III: Codigo
@@ -291,12 +294,19 @@ RotinaIntA:    PUSH     R1
 ;               Efeitos: ---
 ;===============================================================================
 RotinaIntTemp: PUSH     R1
+
+               MOV      R1, M[tempo]
+               INC      R1
+               MOV      M[tempo], R1
+
                MOV      R1, TEMP_DELAY
                MOV      M[TEMP_UNIT], R1
-               MOV      R1, 0001h   ; activar temporizador
+               MOV      R1, 0001h   
                MOV      M[TEMP_CONTROL], R1
+               MOV      M[relogio_flag], R1
                MOV      R1, M[running]
 			   MOV		M[temp_flag], R1      ; só é activada enquanto modo running
+
                POP      R1
                RTI
 
@@ -619,6 +629,66 @@ endWP:        POP      R4
               RET
 
 ;===============================================================================
+; UpdateTempo:
+;               Entradas: 
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+UpdateTempo:  PUSH     R1
+              PUSH     R2
+
+              MOV      R2, 10
+              MOV      R1, M[tempo]
+              DIV      R1, R2
+              CMP      R2, 0             
+              CALL.Z   WriteTempo           ; Update se passou 10 decimas de sec
+
+              MOV      M[relogio_flag], R0
+
+              POP      R2
+              POP      R1
+              RET
+
+;===============================================================================
+; WriteTempo:
+;               Entradas: 
+;               Saidas: ---
+;               Efeitos: ---
+;===============================================================================
+WriteTempo:   PUSH     R1
+              PUSH     R2
+              PUSH     R3
+              PUSH     R4
+
+              MOV      R1, M[tempo]
+              MOV      R2, 10
+              DIV      R1, R2               ; passar de decimas de sec para sec
+              MOV      R2, 60
+
+              DIV      R1, R2               ; R1: minutos, R2, segundos
+
+              MOV      R3, RELOGIO_RIGHT
+
+              MOV      R4, 10               ; escrever segundos em dec
+              DIV      R2, R4
+              MOV      M[R3], R4
+              INC      R3
+              MOV      M[R3], R2
+              INC      R3
+            
+              MOV      R4, 000Ah            ; escrever minutos em dec
+              DIV      R1, R4
+              MOV      M[R3], R4
+              INC      R3
+              MOV      M[R3], R1
+
+              POP      R4
+              POP      R3
+              POP      R2
+              POP      R1
+              RET
+
+;===============================================================================
 ; EscUmAlien: 
 ;               Entradas: R7 e R2
 ;               Saidas: ---
@@ -787,8 +857,12 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                PUSH     POS_veiculo_ini
                CALL     EscString
                CALL     WritePontos
+               CALL     WriteTempo
 
-waitstart:     MOV      R1, M[restart] 
+waitstart:     MOV      R1, M[relogio_flag]
+               CMP      R1, 1
+               CALL.Z   UpdateTempo
+               MOV      R1, M[restart] 
                CMP      R1, 0001h       ; esperar pelo sinal restart para prosseguir
                BR.NZ    waitstart
                CALL     Setup
@@ -800,6 +874,9 @@ waitstart:     MOV      R1, M[restart]
 mainloop:      MOV		R1, M[temp_flag]
 			   CMP		R1, 1
 			   CALL.Z   MovAliens
+               MOV      R1, M[relogio_flag]
+               CMP      R1, 1
+               CALL.Z   UpdateTempo
 			   MOV      R1, M[game_over]
                CMP      R1, 1
                BR.Z     perdeu
@@ -812,7 +889,7 @@ mainloop:      MOV		R1, M[temp_flag]
                MOV      R1, M[IO_PRESSED]
                CMP      R1, 1
                CALL.Z   MoveVeiculo
-               BR       mainloop
+               JMP      mainloop
 
 ganhou:        CALL     GameWon
                MOV      M[restart], R0    ; evitar restart automático
@@ -822,7 +899,10 @@ perdeu:        CALL     GameLost
                MOV      M[restart], R0    ; evitar restart automático
                JMP      waitstart
 
-pausaloop:     MOV      R1, M[running]
+pausaloop:     MOV      R1, M[relogio_flag]
+               CMP      R1, 1
+               CALL.Z   UpdateTempo
+               MOV      R1, M[running]
                CMP      R1, 0000h
                BR.Z     pausaloop
                JMP      mainloop
