@@ -27,10 +27,12 @@ TEMP_UNIT       EQU     FFF6h
 TEMP_CONTROL    EQU     FFF7h
 TEMP_DELAY      EQU     0001h
 
-LCD_WRITE       EQU     FFF4h
-LCD_CONTROL     EQU     FFF5h
+LCD_WRITE       EQU     FFF5h
+LCD_CONTROL     EQU     FFF4h
 
 LEDS            EQU     FFF8h
+
+RELOGIO_RIGHT   EQU     FFF0h
 
 LIMPAR_JANELA   EQU     FFFFh
 FIM_TEXTO       EQU     '@'
@@ -86,6 +88,7 @@ game_over       WORD    0000h
 str_game_over   STR     'GAME OVER', FIM_TEXTO
 
 pontuacao       WORD    0000h
+str_pontos      STR     'Pontuacao: ', FIM_TEXTO
 
 running         WORD    0
 restart         WORD    0
@@ -564,7 +567,8 @@ eraseshoot:    MOV      M[IO_CURSOR], R3
 UpdatePontos: PUSH     R1
               MOV      R1, M[pontuacao]
               ADD      R1, PONTO
-              MOV      R1, M[pontuacao]
+              MOV      M[pontuacao], R1
+              CALL     WritePontos
               POP      R1
               RET
 
@@ -575,9 +579,43 @@ UpdatePontos: PUSH     R1
 ;               Efeitos: ---
 ;===============================================================================
 WritePontos:  PUSH     R1
-              POP      R1
-    
+              PUSH     R2
+              PUSH     R3
+              PUSH     R4
+            
+              ; escrever string Pontuacao
+              MOV      R1, 8010h
+              MOV      M[LCD_CONTROL], R1    ; limpa display
+              MOV      R1, 8000h
+              MOV      R2, str_pontos
+lcd_w_loop:   MOV      R3, M[R2]
+              CMP      R3, FIM_TEXTO
+              BR.Z     lcd_w_number
+              MOV      M[LCD_CONTROL], R1
+              MOV      M[LCD_WRITE], R3
+              INC      R2
+              INC      R1
+              CMP      R1, 800Fh
+              BR.P     lcd_w_number
+              BR       lcd_w_loop
 
+              ; escrita dos pontos em decimal
+lcd_w_number: MOV      R1, 800Fh            ; começar na pos mais à direita
+              MOV      R4, M[pontuacao] 
+lcd_divloop:  MOV      R2, 000Ah
+              DIV      R4, R2 
+              MOV      R3, R2
+              ADD      R3, '0'              ; offset ASCI
+              MOV      M[LCD_CONTROL], R1
+              DEC      R1
+              MOV      M[LCD_WRITE], R3
+              CMP      R4, 0
+              BR.NZ    lcd_divloop
+
+endWP:        POP      R4 
+              POP      R3
+              POP      R2
+              POP      R1
               RET
 
 ;===============================================================================
@@ -748,9 +786,7 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                PUSH     veiculo
                PUSH     POS_veiculo_ini
                CALL     EscString
-
-               MOV      R1, 8010h       ; activar LCD, limpar ecran, linha 0
-               MOV      M[LCD_CONTROL], R1
+               CALL     WritePontos
 
 waitstart:     MOV      R1, M[restart] 
                CMP      R1, 0001h       ; esperar pelo sinal restart para prosseguir
