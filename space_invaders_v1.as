@@ -2,10 +2,6 @@
 ; ZONA I: Definicao de constantes
 ;         Pseudo-instrucao : EQU
 ;===============================================================================
-
-; TEMPORIZACAO
-DELAYVALUE      EQU     5000h
-
 ; STACK POINTER
 SP_INICIAL      EQU     FDFFh
 
@@ -25,47 +21,44 @@ DEFAULTINTMASK  EQU     8481h     ; interrupts [temp,A,7,0]
 
 TEMP_UNIT       EQU     FFF6h
 TEMP_CONTROL    EQU     FFF7h
-TEMP_DELAY      EQU     0001h
+TEMP_DELAY      EQU     0001h     ; tempo de delay 0.1s
 
 LCD_WRITE       EQU     FFF5h
 LCD_CONTROL     EQU     FFF4h
 
-LEDS            EQU     FFF8h
+LEDS            EQU     FFF8h     ; posição de mem de activação de leds
 
-RELOGIO_RIGHT   EQU     FFF0h
+RELOGIO_RIGHT   EQU     FFF0h     ; algarismo mais á direita display 7 seg
 
 LIMPAR_JANELA   EQU     FFFFh
 FIM_TEXTO       EQU     '@'
 
-POS_STR         EQU     121Ch
-POS_MESSAGE     EQU     061Ch
+POS_STR         EQU     091Ah
+POS_MESSAGE     EQU     0624h
 
-PONTO           EQU     0005h
+PONTO           EQU     0005h     ; valor de um ponto
 
-CONTINUAR       EQU     0001h
-PARAR           EQU     0000h
+POS_veiculo_ini EQU     1627h     ; posição inicial do veiculo
 
-POS_veiculo_ini EQU     1627h 
-
-POS_alien_ini   EQU     0101h   
-POS_ld_alien    EQU     0A01h
-LIMITE_direita  EQU     0028h
-LIMITE_esquerda EQU     0001h
-GROUND_LIMIT    EQU     1600h
-ALIEN_DEAD      EQU     DEADh
-MOVE_DOWN       EQU     0100h
-MOVE_RIGHT      EQU     0001h
-MOVE_LEFT       EQU     FFFFh
+POS_alien_ini   EQU     0101h     ; posição inicial alien esquerda cima
+POS_ld_alien    EQU     0A01h     ; posição inicial alien esquerda baixo
+LIMITE_direita  EQU     0028h     ; limite dir para posição de alien esq
+LIMITE_esquerda EQU     0001h     ; limite esq para posição alien esq
+GROUND_LIMIT    EQU     1700h     ; limite baixo
+ALIEN_DEAD      EQU     DEADh     ; posição de alien destruido
+MOVE_DOWN       EQU     0100h     ; incremento de posição movimento para baixo
+MOVE_RIGHT      EQU     0001h     ; incremento de posição movimento direita
+MOVE_LEFT       EQU     FFFFh     ; incremente de posição movimento esquerda
 
 ;===============================================================================
 ; ZONA II: Definicao de variaveis
 ;          Pseudo-instrucoes : WORD - palavra (16 bits)
-;                              STR  - sequencia de caracteres.
-;          Cada caracter ocupa 1 palavra
+;                              STR  - sequencia de caracteres
+;                              TAB  - vector de dimensão 'const'
 ;===============================================================================
 
                 ORIG    8000h
-str_start       STR     'Prima I0 para iniciar o jogo', FIM_TEXTO
+str_start       STR     ' Prima I0 para iniciar o jogo', FIM_TEXTO
 str_restart     STR     'Prima I0 para reiniciar o jogo', FIM_TEXTO
 str_clean       STR     '                              ', FIM_TEXTO
 parede_h        STR     '|------------------------------------------------------------------------------|', FIM_TEXTO
@@ -83,7 +76,7 @@ alien_position  WORD    POS_ld_alien    ; contém coordenada do 1º alien
 n_alien_shot    WORD    0               ; nº de aliens acertados
 
 victory         WORD    0
-str_game_won    STR     'Ganhou!', FIM_TEXTO
+str_game_won    STR     ' Ganhou!', FIM_TEXTO
 game_over       WORD    0000h
 str_game_over   STR     'GAME OVER', FIM_TEXTO
 
@@ -108,72 +101,115 @@ tempo           WORD    0000h           ; contabiliza n interrupções de timer
                 ORIG    0000h
                 JMP     inicio
 
+;===============================================================================
+; IntInit: Inicialização das interrupções, default
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: preenche M[INT_MASK], tabela de interrupções, unidades
+; do timer e ENI
+;===============================================================================
+IntInit:       PUSH     R1 
+               MOV      R1, DEFAULTINTMASK
+               MOV      M[INT_MASK], R1        
+
+               MOV      R1, RotinaInt0
+               MOV      M[TAB_INT0], R1       ; preencher int vector pos I0
+
+               MOV      R1, RotinaInt7
+               MOV      M[TAB_INT7], R1  
+
+               MOV      R1, RotinaIntA
+               MOV      M[TAB_INTA], R1
+
+               ;temporizador
+               MOV      R1, TEMP_DELAY
+               MOV      M[TEMP_UNIT], R1
+               MOV      M[TEMP_CONTROL], R0   ; esperar por start
+               MOV      R1, RotinaIntTemp
+               MOV      M[TAB_TEMP], R1
+               
+               POP      R1
+
+               ENI
+               RET
+
+;===============================================================================
+; RotinaInt0: Rotina de interrupção associado ao botão de pressão 0
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: activa M[restart] permitindo sair do loop waitstart,
+;reinicia nº de aliens destruidos numa ronda colocando M[n_alien_shot] = 0
+;===============================================================================
+RotinaInt0:    PUSH     R1
+               MOV      R1, 1
+               MOV      M[restart], R1
+               MOV      M[n_alien_shot], R0 
+               POP      R1
+               RTI
+;===============================================================================
+; RotinaInt7: Rotina de interrupção associada ao botão de pressão 7
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: toggle M[mode] permitindo alternar entre modo
+;superspeed e normal
+;===============================================================================
+RotinaInt7:    PUSH     R1
+               MOV      R1, M[mode]
+               XOR      R1, 1
+               MOV      M[mode], R1        ; toggle modo superspeed/normal
+               POP      R1
+               RTI
+
+;===============================================================================
+; RotinaIntA: Rotina de interrupção associada ao botão de pressão A
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: toggle M[running] permitindo alternar entre programa
+;a correr ou em pausa
+;===============================================================================
+RotinaIntA:    PUSH     R1
+               MOV      R1, M[running]
+               XOR      R1, 0001h          ; toggle ao bit de pausa
+               MOV      M[running], R1
+               POP      R1
+               RTI
+
+;===============================================================================
+; RotinaIntTemp: Rotina de interrupção associado ao Timer
+;               Entradas: ---
+;               Saidas: ---
+;               Efeitos: incrementa M[tempo], volta a recolocar unidades 
+;do timer (M[TEMP_UNIT]=TEMP_DELAY), activa contagem do Timer (M[TEMP_COMTROL]=1)
+;, activa M[relogio_flag] permitindo ser chamada a função de escrita de tempo,
+;activa M[temp_flag] se jogo estiver a ser corrido (vs pausa)
+;===============================================================================
+RotinaIntTemp: PUSH     R1
+
+               MOV      R1, M[tempo]
+               INC      R1
+               MOV      M[tempo], R1
+
+               MOV      R1, TEMP_DELAY
+               MOV      M[TEMP_UNIT], R1
+               MOV      R1, 1
+               MOV      M[TEMP_CONTROL], R1
+               MOV      M[relogio_flag], R1
+               MOV      R1, M[running]
+			   MOV		M[temp_flag], R1      ; só é activada enquanto modo running
+
+               POP      R1
+               RTI
 
 ;===============================================================================
 ; LimpaJanela: Rotina que limpa a janela de texto.
 ;               Entradas: --
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: IO janela de texto é totalmente limpa
 ;===============================================================================
 
 LimpaJanela:    PUSH    R2
                 MOV     R2, LIMPAR_JANELA
                 MOV     M[IO_CURSOR], R2
-                POP     R2
-                RET
-
-;===============================================================================
-; NumberWrite: Escrever um número dado em R1 na posição CURSOR_POSITION
-;               Entradas: R1 - número a escrever
-;               Saidas: ---
-;               Efeitos: Alteracao da posicao de memoria M[IO_CURSOR], escrita de
-;número na posição dada por M[CURSOR_POSITION]
-;===============================================================================
-NumberWrite:    PUSH    R2
-                PUSH    R3
-                PUSH    R5
-                PUSH    R4
-                PUSH    R1
-
-                MOV     R3, R1
-                MOV     R5, M[NW_POSITION]
-
-                MOV     R4, 0006h        ; subrotina para limpar espaço a escrever
-					 ; limpa 6 caracteres (-65537)
-numberclean:   	MOV     M[IO_CURSOR], R5
-                MOV     R1, ' '
-                CALL    EscCar
-                DEC     R5
-                DEC     R4
-                BR.NZ   numberclean
-		
-                MOV     R5, M[NW_POSITION]
-                CMP     R3, 0000h        ; caso o número seja negativo, usar módulo
-                BR.NN   divloop
-                NEG     R3
-
-divloop:        MOV     R2, 000Ah	
-                DIV     R3, R2        ; resto da divisão em R2, divisao inteira em R3
-                MOV     R1, R2
-                ADD     R1, '0'
-                MOV     M[IO_CURSOR], R5
-                DEC     R5
-                CALL    EscCar
-                CMP     R3, 0000h
-                BR.NZ   divloop
-
-                POP     R1
-                PUSH    R1
-
-                CMP     R1, 0000h     ; caso número negativo, escrever sinal -
-                BR.NN   endNumwrite
-                MOV     M[IO_CURSOR], R5
-                MOV     R1, '-'
-                CALL    EscCar
-endNumwrite:	POP     R1
-                POP     R4
-                POP     R5
-                POP     R3
                 POP     R2
                 RET
 
@@ -217,104 +253,43 @@ EscCar:         MOV     M[IO_WRITE], R1
                 RET                     
 
 ;===============================================================================
-; IntInit: Inicialização inicial de interrupções
+; EspacoFill: Preenche setup do espaco de jogo com parede vertical e horizontal
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: preenche IO janela de texto com o setup gráfico inicial
+;M[IO_CURSOR] é alterada
 ;===============================================================================
-IntInit:       PUSH     R1 
-               MOV      R1, DEFAULTINTMASK
-               MOV      M[INT_MASK], R1        
+EspacoFill:    PUSH     R1
+               PUSH     R2
 
-               MOV      R1, RotinaInt0
-               MOV      M[TAB_INT0], R1       ; preencher int vector pos I0
+               PUSH     parede_h
+               PUSH     0000h           
+               CALL     EscString       ; parede horizontal superior
+               PUSH     parede_h
+               PUSH     1700h           
+               CALL     EscString       ; parede horizontal inferior
 
-               MOV      R1, RotinaInt7
-               MOV      M[TAB_INT7], R1  
-
-               MOV      R1, RotinaIntA
-               MOV      M[TAB_INTA], R1
-
-               ;temporizador
-               MOV      R1, TEMP_DELAY
-               MOV      M[TEMP_UNIT], R1
-               MOV      M[TEMP_CONTROL], R0   ; esperar por start
-               MOV      R1, RotinaIntTemp
-               MOV      M[TAB_TEMP], R1
+               MOV      R1, 1600h
+               MOV      R2, '|'
+vertical_loop: ADD      R1, 004Fh       ; preencher paredes verticais
+               MOV      M[IO_CURSOR], R1
+               MOV      M[IO_WRITE], R2
+               SUB      R1, 004Fh
+               MOV      M[IO_CURSOR], R1
+               MOV      M[IO_WRITE], R2
+               SUB      R1, 0100h
+               BR.NZ    vertical_loop
                
+               POP      R2
                POP      R1
-
-               ENI
-               RET
-
-;===============================================================================
-; RotinaInt0: Rotina de interrupção 0
-;             Setup dos aliens e escrita inicial para o ecrã
-;               Entradas: ---
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-RotinaInt0:    PUSH     R1
-               MOV      R1, 1
-               MOV      M[restart], R1
-               MOV      M[n_alien_shot], R0 
-               MOV      M[victory], R0
-               POP      R1
-               RTI
-;===============================================================================
-; RotinaInt7: Rotina de interrupção 7 - modo ultra rápido
-;               Entradas: ---
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-RotinaInt7:    PUSH     R1
-               MOV      R1, M[mode]
-               XOR      R1, 1
-               MOV      M[mode], R1      ; toggle modo superspeed/normal
-               POP      R1
-               RTI
-
-;===============================================================================
-; RotinaIntA: Rotina de interrupção A - Pausa
-;               Entradas: ---
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-RotinaIntA:    PUSH     R1
-               MOV      R1, M[running]
-               XOR      R1, 0001h          ; toggle ao bit de pausa
-               MOV      M[running], R1
-               POP      R1
-               RTI
-
-;===============================================================================
-; RotinaIntTemp: Rotina de interrupção 0
-;               Entradas: ---
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-RotinaIntTemp: PUSH     R1
-
-               MOV      R1, M[tempo]
-               INC      R1
-               MOV      M[tempo], R1
-
-               MOV      R1, TEMP_DELAY
-               MOV      M[TEMP_UNIT], R1
-               MOV      R1, 0001h   
-               MOV      M[TEMP_CONTROL], R1
-               MOV      M[relogio_flag], R1
-               MOV      R1, M[running]
-			   MOV		M[temp_flag], R1      ; só é activada enquanto modo running
-
-               POP      R1
-               RTI
+               RET         
 
 ;===============================================================================
 ; Setup: Rotina de setup de aliens inicial
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: volta a preencher IO janela de texto com setup inicial,
+;cálcula posições iniciais dos aliens e escreve no vector alien_position
 ;===============================================================================
 Setup:         PUSH     R1
                PUSH     R2
@@ -325,7 +300,7 @@ Setup:         PUSH     R1
                CALL     LimpaJanela  
                CALL     EspacoFill
 
-               PUSH     veiculo
+               PUSH     veiculo         ; voltar a colocar veiculo no ecran
                MOV      R1, M[POS_veiculo]
                PUSH     R1
                CALL     EscString
@@ -362,18 +337,6 @@ colalien:      MOV      M[R5], R3
                RET
 
 ;===============================================================================
-; Delay: Rotina que permite gerar um atraso
-;               Entradas: ---
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-Delay:          PUSH    R1
-                MOV     R1, DELAYVALUE
-DelayLoop:      DEC     R1
-                BR.NZ   DelayLoop
-                POP     R1
-                RET
-;===============================================================================
 ; ABSDIF: Calcula valor absoluto da diferença de 2 números R = |A-B|
 ;               Entradas:  pilha - operando A
 ;                          pilha - operando B
@@ -394,41 +357,13 @@ num_positivo:   MOV     M[SP + 5], R1
                 RETN    1
                
 ;===============================================================================
-; EspacoFill: Preenche setup do espaco de jogo com parede vertical e horizontal
-;               Entradas: ---
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-EspacoFill:    PUSH     R1
-               PUSH     R2
-
-               PUSH     parede_h
-               PUSH     0000h           
-               CALL     EscString       ; parede horizontal superior
-               PUSH     parede_h
-               PUSH     1700h           
-               CALL     EscString       ; parede horizontal inferior
-
-               MOV      R1, 1600h
-               MOV      R2, '|'
-vertical_loop: ADD      R1, 004Fh       ; preencher paredes verticais
-               MOV      M[IO_CURSOR], R1
-               MOV      M[IO_WRITE], R2
-               SUB      R1, 004Fh
-               MOV      M[IO_CURSOR], R1
-               MOV      M[IO_WRITE], R2
-               SUB      R1, 0100h
-               BR.NZ    vertical_loop
-               
-               POP      R2
-               POP      R1
-               RET         
-
-;===============================================================================
 ; MoveVeiculo:  Dependendo do input do utilizador, move o veiculo ou dispara
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: Altera M[POS_veiculo] no caso de movimento
+;               Efeitos: Caso movimento: altera M[POS_veiculo] de acordo com
+;input do utilizador
+;                        Caso disparo: é chamada a funcao Disparar que irá
+;representar o tiro na janela de texto
 ;===============================================================================
 MoveVeiculo:   PUSH     R1
                PUSH     R2
@@ -476,7 +411,11 @@ endMove:       POP      R3
 ; Disparar:  Função que realiza o disparo de um tiro
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: LEDS acendem momentaneamente, é impresso na janela de
+;texto o rasto do tiro que se extende até ao teto ou até ao primeiro alien que
+;acertar, neste caso o vector 'alien_vec' é alterado na posição respectiva do 
+;alien disparado colocando o seu valor para ALIEN_DEAD de modo a não ser mais
+;impresso na janela de texto, incrementa M[alien_shot] caso o tiro atinja aliens
 ;===============================================================================
 Disparar:      PUSH     R1
                PUSH     R2
@@ -543,6 +482,7 @@ missedshot:    MOV      R2, ' '
 temp_delay:    MOV      R5, M[temp_flag]    
                CMP      R5, 0              
                BR.Z     temp_delay
+               CALL     UpdateTempo
                MOV      M[temp_flag], R0
                DEC      R6
                CMP      R6, 0
@@ -569,10 +509,10 @@ eraseshoot:    MOV      M[IO_CURSOR], R3
                RET
 
 ;===============================================================================
-; UpdatePontos
+; UpdatePontos: Incrementa pontuacao e chama rotina de escrita de pontos no LCD
 ;               Entradas: 
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: incrementa M[pontuacao]
 ;===============================================================================
 UpdatePontos: PUSH     R1
               MOV      R1, M[pontuacao]
@@ -583,8 +523,8 @@ UpdatePontos: PUSH     R1
               RET
 
 ;===============================================================================
-; WritePontos:
-;               Entradas: 
+; WritePontos: Converte pontos para decimal e escreve pontuacao no ecran LCD
+;               Entradas: ---
 ;               Saidas: ---
 ;               Efeitos: ---
 ;===============================================================================
@@ -629,10 +569,11 @@ endWP:        POP      R4
               RET
 
 ;===============================================================================
-; UpdateTempo:
-;               Entradas: 
+; UpdateTempo: Chama rotina de escrita de tempo se passaram 10 decimas de segundo
+;desde a última escrita
+;               Entradas:---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: desactiva M[relogion_flag]
 ;===============================================================================
 UpdateTempo:  PUSH     R1
               PUSH     R2
@@ -650,10 +591,12 @@ UpdateTempo:  PUSH     R1
               RET
 
 ;===============================================================================
-; WriteTempo:
-;               Entradas: 
+; WriteTempo: converte tempo para segundos e minutos e escreve valor no display
+;de 7 segmentos
+;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: altera posições de memória respectivas ao IO display de
+;7 segmentos
 ;===============================================================================
 WriteTempo:   PUSH     R1
               PUSH     R2
@@ -689,59 +632,11 @@ WriteTempo:   PUSH     R1
               RET
 
 ;===============================================================================
-; EscUmAlien: 
-;               Entradas: R7 e R2
-;               Saidas: ---
-;               Efeitos: ---
-;===============================================================================
-EscUmAlien:   PUSH      R3
-              PUSH      R4
-              PUSH      R5
-
-              MOV       R5, M[R2]
-
-              CMP       R5, ALIEN_DEAD  ; ver se alien já foi atingido
-              JMP.Z     fimUmAlien
-
-cont_print:   PUSH      alien_clean
-              PUSH      R5
-              CALL      EscString
-
-              MOV       R3, M[R2] 
-              ADD       R3, R7          ; mover alien next print, dir R7
-              MOV       M[R2], R3
-
-              PUSH      alien
-              PUSH      R3
-              CALL      EscString
-        
-              INC       R3              ; centrar alien
-              PUSH      R3
-              MOV       R5, M[POS_veiculo]
-              INC       R5              ; centrar veiculo
-              PUSH      R5
-              CALL      ABSDIF          
-              POP       R5              ; distancia horiz alien-veiculo
-              CMP       R5, 0003h       ; verificar embate com nave
-              MOV       R4, 0001h  
-              BR.NN     testground
-              MOV       M[game_over], R4
-testground:   AND       R3, FF00h
-              CMP       R3, GROUND_LIMIT
-              BR.NZ     fimUmAlien
-              MOV       M[game_over], R4
-
-fimUmAlien:   POP       R5 
-              POP       R4
-              POP       R3
-              RET
-
-;===============================================================================
 ;MovAliens: representa os aliens na placa de texto com base no aliens_vec e 
 ;movimenta-os 1 posição
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: altera M[alien_position] de acordo com direção movida
 ;===============================================================================
 MovAliens:    PUSH      R1
               PUSH      R2
@@ -791,7 +686,8 @@ printalien:   CALL      EscUmAlien
               MOV       M[alien_position], R1
 			  
               MOV       R1, M[mode]
-			  MOV		M[temp_flag], R1       ; só desactiva temp_flag em modo normal (0)
+			  MOV		M[temp_flag], R1       ; desactiva temp_flag modo 0
+                                               ; vs modo superspeed
 
               POP       R7
               POP       R6
@@ -803,10 +699,64 @@ printalien:   CALL      EscUmAlien
               RET
 
 ;===============================================================================
-; GameLost: 
+; EscUmAlien: Escreve aliens e altera as suas posições individualmente de acordo
+;com a direção movida
+;               Entradas: R7 e R2, respectivamente direção e indice do alien a
+; mover
+;               Saidas: ---
+;               Efeitos: altera M[R2] com a nova posição do respectivo alien,
+;escreve esse alien no ecran
+;===============================================================================
+EscUmAlien:   PUSH      R3
+              PUSH      R4
+              PUSH      R5
+
+              MOV       R5, M[R2]
+
+              CMP       R5, ALIEN_DEAD  ; ver se alien já foi atingido
+              JMP.Z     fimUmAlien
+
+cont_print:   PUSH      alien_clean
+              PUSH      R5
+              CALL      EscString
+
+              MOV       R3, M[R2] 
+              ADD       R3, R7          ; mover alien next print, dir R7
+              MOV       M[R2], R3
+
+              PUSH      alien
+              PUSH      R3
+              CALL      EscString
+        
+              INC       R3              ; centrar alien
+              PUSH      R3
+              MOV       R5, M[POS_veiculo]
+              INC       R5              ; centrar veiculo
+              PUSH      R5
+              CALL      ABSDIF          
+              POP       R5              ; distancia horiz alien-veiculo
+              CMP       R5, 0003h       ; verificar embate com nave
+              MOV       R4, 0001h  
+              BR.NN     testground
+              MOV       M[game_over], R4
+testground:   AND       R3, FF00h
+              CMP       R3, GROUND_LIMIT
+              BR.NZ     fimUmAlien
+              MOV       M[game_over], R4
+
+fimUmAlien:   POP       R5 
+              POP       R4
+              POP       R3
+              RET
+
+
+
+;===============================================================================
+; GameLost: rotina chamada após derrota 
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: desactiva M[running], escreve mensagem de derrota no
+;ecran, reinicia nº de aliens desctruidos na ronda
 ;===============================================================================
 GameLost:    PUSH     R1
              MOV      M[running], R0
@@ -817,14 +767,18 @@ GameLost:    PUSH     R1
              PUSH     POS_STR
              CALL     EscString
 
+             MOV      M[n_alien_shot], R0
+             MOV      M[game_over], R0
+
              POP      R1
              RET
 
 ;===============================================================================
-; GameWon: 
+; GameWon: rotina chamada após victória numa ronda
 ;               Entradas: ---
 ;               Saidas: ---
-;               Efeitos: ---
+;               Efeitos: desactiva M[running], escreve mensagem de victória
+;, desactiva M[victory], reinicia nº de aliens destruidos
 ;===============================================================================
 GameWon:     PUSH     R1
              MOV      M[running], R0
@@ -836,6 +790,7 @@ GameWon:     PUSH     R1
              CALL     EscString
 
              MOV      M[n_alien_shot], R0
+             MOV      M[victory], R0
 
              POP      R1
              RET
@@ -853,23 +808,29 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                PUSH     str_start
                PUSH     POS_STR  
                CALL     EscString
+
+               MOV      R1, POS_veiculo_ini
+               MOV      M[POS_veiculo], R1
                PUSH     veiculo
-               PUSH     POS_veiculo_ini
+               PUSH     R1
                CALL     EscString
+
+               MOV      M[pontuacao], R0
                CALL     WritePontos
+               MOV      M[tempo], R0
                CALL     WriteTempo
 
-waitstart:     MOV      R1, M[relogio_flag]
+waitstart:     MOV      R1, M[relogio_flag] 
                CMP      R1, 1
                CALL.Z   UpdateTempo
                MOV      R1, M[restart] 
-               CMP      R1, 0001h       ; esperar pelo sinal restart para prosseguir
+               CMP      R1, 0001h       ; esperar pelo sinal restart para seguir
                BR.NZ    waitstart
+
                CALL     Setup
                MOV      M[restart], R0
                MOV      M[TEMP_CONTROL], R1
                MOV      M[running], R1
-               MOV      M[game_over], R0
 
 mainloop:      MOV		R1, M[temp_flag]
 			   CMP		R1, 1
