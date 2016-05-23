@@ -186,7 +186,7 @@ RotinaIntA:    PUSH     R1
 RotinaIntTemp: PUSH     R1
 
                MOV      R1, M[tempo]
-               INC      R1
+               ADD      R1, M[running]        ; incrementa se jogo a correr
                MOV      M[tempo], R1
 
                MOV      R1, TEMP_DELAY
@@ -820,10 +820,7 @@ inicio:        MOV      R1, SP_INICIAL  ; setup (SP; Interrupções)
                MOV      M[tempo], R0
                CALL     WriteTempo
 
-waitstart:     MOV      R1, M[relogio_flag] 
-               CMP      R1, 1
-               CALL.Z   UpdateTempo
-               MOV      R1, M[restart] 
+waitstart:     MOV      R1, M[restart] 
                CMP      R1, 0001h       ; esperar pelo sinal restart para seguir
                BR.NZ    waitstart
 
@@ -852,18 +849,17 @@ mainloop:      MOV		R1, M[temp_flag]
                CALL.Z   MoveVeiculo
                JMP      mainloop
 
-ganhou:        CALL     GameWon
+ganhou:        CALL     GameWon 
+               MOV      M[running], R0
                MOV      M[restart], R0    ; evitar restart automático
                JMP      waitstart
 
 perdeu:        CALL     GameLost
+               MOV      M[running], R0
                MOV      M[restart], R0    ; evitar restart automático
                JMP      waitstart
 
-pausaloop:     MOV      R1, M[relogio_flag]
-               CMP      R1, 1
-               CALL.Z   UpdateTempo
-               MOV      R1, M[running]
+pausaloop:     MOV      R1, M[running]
                CMP      R1, 0000h
                BR.Z     pausaloop
                JMP      mainloop
