@@ -438,34 +438,38 @@ Disparar:      PUSH     R1
                MOV      R1, M[POS_veiculo]
                MOV      R2, '*'
                ADD      R1, 0002h        ; centrar tiro
-shootloop:     SUB      R1, 0100h
-               MOV      M[IO_CURSOR], R1
-               MOV      M[IO_WRITE], R2
-               MOV      R3, alien_vec
+               AND      R1, 00FFh
+
+checkhit:      MOV      R3, alien_vec    ; verifica se nave acertou no alien
                ADD      R3, 001Bh        ; começar check hit de aliens em baixo
-               MOV      R5, 001Ch       
-checkhit:      MOV      R4, M[R3]
-               INC      R4               ; coordenada centro do alien
-               PUSH     R4               ; para efeito de cálculo
+checkalien:    MOV      R4, M[R3]
+               INC      R4
+               AND      R4, 00FFh        ; avaliar precisão pelas coords horiz
+               PUSH     R4
                PUSH     R1
                CALL     ABSDIF
-               DEC      R4               ; voltar a coordenada original
                POP      R6
-               CMP      R6, 0002h        ; se tiro acertou no alien 
-               BR.N     alienshot
+               CMP      R6, 2
+               BR.N     alienshot        ; se disparo acertou em alien
                DEC      R3
-               DEC      R5
-               BR.NZ    checkhit
-               
-               MOV      R6, R1
-               AND      R6, FF00h
-               CMP      R6, 0100h
-               BR.NZ    shootloop        ; verificar que ainda nao atingiu teto
-               BR       missedshot
+               CMP      R3, alien_vec
+               BR.NN    checkalien       ; se ainda há mais aliens para testar
+               MOV      R1, M[POS_veiculo]
+               ADD      R1, 2
+               AND      R1, 00FFh
+               ADD      R1, 0100h        ; colocar R1 coord horiz veiculo no topo do ecran
+               JMP      shootprint
 
-alienshot:     PUSH     alien_clean 
+alienshot:     MOV      R1, M[R3]      
+               MOV      R4, R1
+               PUSH     alien_clean
                PUSH     R4
-               CALL     EscString
+               CALL     EscString       ; apagar alien
+               AND      R1, FF00h
+               MOV      R4, M[POS_veiculo]
+               ADD      R4, 2
+               AND      R4, 00FFh
+               OR       R1, R4          ; colocar R1 com coord vertical alien e horiz veiculo
                MOV      R4, ALIEN_DEAD
                MOV      M[R3], R4
                CALL     UpdatePontos
@@ -473,9 +477,18 @@ alienshot:     PUSH     alien_clean
                INC      R6
                MOV      M[n_alien_shot], R6
                CMP      R6, 28           ; foram abatidos todos os aliens?
-               BR.NZ    missedshot
+               BR.NZ    shootprint
                MOV      R6, 1
                MOV      M[victory], R6
+
+shootprint:    MOV      R3, M[POS_veiculo]
+               ADD      R3, 2
+
+shootloop:     SUB      R3, 0100h
+               MOV      M[IO_CURSOR], R3
+               MOV      M[IO_WRITE], R2
+               CMP      R3, R1           ; R1 contém a ultima coord a escrever
+               BR.NZ    shootloop
 
 missedshot:    MOV      R2, ' '
                MOV      R3, M[POS_veiculo]
