@@ -184,19 +184,27 @@ RotinaIntA:    PUSH     R1
 ;activa M[temp_flag] se jogo estiver a ser corrido (vs pausa)
 ;===============================================================================
 RotinaIntTemp: PUSH     R1
-
-               MOV      R1, M[tempo]
-               ADD      R1, M[running]        ; incrementa se jogo a correr
-               MOV      M[tempo], R1
+               PUSH     R2
 
                MOV      R1, TEMP_DELAY
                MOV      M[TEMP_UNIT], R1
                MOV      R1, 1
                MOV      M[TEMP_CONTROL], R1
-               MOV      M[relogio_flag], R1
-               MOV      R1, M[running]
-	       MOV	M[temp_flag], R1      ; só é activada enquanto modo running
 
+               MOV      R1, M[tempo]
+               ADD      R1, M[running]        ; incrementa se jogo a correr
+               MOV      M[tempo], R1
+
+               MOV      R2, 10
+               DIV      R1, R2
+               CMP      R2, 0
+               BR.NZ    no_time_inc
+               MOV      R1, 1
+               MOV      M[relogio_flag], R1
+no_time_inc:   MOV      R1, M[running]
+	           MOV   	M[temp_flag], R1      ; só é activada enquanto modo running
+
+               POP      R2
                POP      R1
                RTI
 
@@ -482,7 +490,7 @@ missedshot:    MOV      R2, ' '
 temp_delay:    MOV      R5, M[temp_flag]    
                CMP      R5, 0              
                BR.Z     temp_delay
-               CALL     UpdateTempo
+               CALL     WriteTempo
                MOV      M[temp_flag], R0
                DEC      R6
                CMP      R6, 0
@@ -569,28 +577,6 @@ endWP:        POP      R4
               RET
 
 ;===============================================================================
-; UpdateTempo: Chama rotina de escrita de tempo se passaram 10 decimas de segundo
-;desde a última escrita
-;               Entradas:---
-;               Saidas: ---
-;               Efeitos: desactiva M[relogio_flag]
-;===============================================================================
-UpdateTempo:  PUSH     R1
-              PUSH     R2
-
-              MOV      R2, 10
-              MOV      R1, M[tempo]
-              DIV      R1, R2
-              CMP      R2, 0             
-              CALL.Z   WriteTempo           ; Update se passou 10 decimas de sec
-
-              MOV      M[relogio_flag], R0
-
-              POP      R2
-              POP      R1
-              RET
-
-;===============================================================================
 ; WriteTempo: converte tempo para segundos e minutos e escreve valor no display
 ;de 7 segmentos
 ;               Entradas: ---
@@ -624,6 +610,8 @@ WriteTempo:   PUSH     R1
               MOV      M[R3], R4
               INC      R3
               MOV      M[R3], R1
+
+              MOV      M[relogio_flag], R0
 
               POP      R4
               POP      R3
@@ -832,11 +820,11 @@ waitstart:     MOV      R1, M[restart]
                MOV      M[running], R1
 
 mainloop:      MOV	R1, M[temp_flag]	;verifica se decorreu 0.1s
-	       CMP	R1, 1
-	       CALL.Z   MovAliens		;move os aliens
+     	       CMP	R1, 1
+    	       CALL.Z   MovAliens		;move os aliens
                MOV      R1, M[relogio_flag]	;verifica se decorreu 1s
                CMP      R1, 1
-               CALL.Z   UpdateTempo		;atualiza o tempo
+               CALL.Z   WriteTempo		;atualiza o tempo
                MOV      R1, M[running]		;verifica se o jogo foi colocado
                CMP      R1, 0			; em pausa
                JMP.Z    pausaloop
